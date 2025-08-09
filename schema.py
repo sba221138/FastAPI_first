@@ -1,7 +1,6 @@
-from pydantic import BaseModel
-
+from sqlmodel import Field,SQLModel
     
-class BookInput(BaseModel):
+class BookInput(SQLModel):
     title: str
     author: str
     publisher: str
@@ -26,6 +25,9 @@ class BookInput(BaseModel):
                 "summary": "This is an example book summary."
             }
         }
+
+class Book(BookInput, table=True):
+    id_: int | None = Field(primary_key=True, default=None)
 
 class BookOutput(BookInput):
     """Model for a book."""

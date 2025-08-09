@@ -2,48 +2,52 @@ from fastapi import FastAPI
 from fastapi import HTTPException
 import uvicorn
 from db import load_books, save_book
-from schema import BookOutput,BookInput
+from sqlmodel import create_engine, SQLModel, Session, select
+
+from schema import BookOutput,BookInput, Book
 
 app = FastAPI(title="Book API", description="A simple API to manage books", version="1.0")
 
 books = load_books()
 
+engine = create_engine("sqlite:///books.db",
+                       connect_args={"check_same_thread": False},
+                       echo=True)
+
+@app.on_event("startup")
+def on_startup():
+    """Create the database tables on startup."""
+    SQLModel.metadata.create_all(engine)
+
 @app.get("/api/books")
-def get_books(genres: str|None = None, id_: int = None) -> list[BookOutput]:
+def get_books(genres: str|None = None, id_: int = None) -> list[Book]:
     """Get all books or filter by genres or id."""
-    result = books
-    if genres:
-        return [book for book in result if book.genres == genres]
-    if id_:
-        return [book for book in result if book.id_ == id_]
-    return result
+    with Session(engine) as session:
+        query = select(Book)
+        if genres:
+            query = query.where(Book.genres == genres)
+        if id_ :
+            query = query.where(Book.id_ == id_)
+        return session.exec(query).all() # all 會把結果轉換成list 輸出
 
 @app.get("/api/books/{id_}")
-def get_book_by_id(id_: int) -> BookOutput:
-     """Get a book by its ID."""
-     result = [book for book in books if book.id_ == id_]
-     if result:
-        return result[0]
-     raise HTTPException(status_code=404, detail=f"Not found id={id_} book")
+def get_book_by_id(id_: int) -> Book:
+    """Get a book by its ID.""" 
+    with Session(engine) as session:
+        book = session.get(Book, id_)
+        if book:
+            return book
+        else:
+            raise HTTPException(status_code=404, detail=f"Not found id={id_} book")
 
 @app.post("/api/books")
-def add_book(book:BookInput) -> BookOutput:
-    max_id = max((book.id_ for book in books), default=0)
-    new_book = BookOutput(
-        id_=max_id + 1,  # Simple ID generation
-        title=book.title,
-        author=book.author,
-        publisher=book.publisher,
-        year_published=book.year_published,
-        isbn=book.isbn,
-        language=book.language,
-        pages=book.pages,
-        genres=book.genres,
-        summary=book.summary
-    )
-    books.append(new_book)
-    save_book(books)
-    return new_book
+def add_book(book:BookInput) -> Book:
+    with Session(engine) as session:
+        new_book = Book.from_orm(book)
+        session.add(new_book)
+        session.commit()
+        session.refresh(new_book)
+        return new_book
 
 @app.delete("/api/books/{id_}")
 def delete_book(id_:int):
